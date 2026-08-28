@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+pydantic
+discord.py
+aiohttp
+python-dotenv
