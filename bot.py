@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import aiohttp
 import discord
@@ -43,9 +44,6 @@ async def api_json(path: str) -> dict:
             raise RuntimeError("API request timed out (Render service may be starting)")
         except aiohttp.ClientError as e:
             raise RuntimeError(f"Connection failed: {e}")
-
-
-import asyncio
 
 
 @client.commands.command(name="eggs", description="Show the latest observed field eggs")
