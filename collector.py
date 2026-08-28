@@ -14,11 +14,12 @@ import os
 import json
 import time
 from datetime import datetime, timezone
-from typing import Optional
 import requests
+
 
 API_URL = os.getenv("PREDICTOR_API_URL", "http://127.0.0.1:8000").rstrip("/")
 COLLECTOR_KEY = os.getenv("COLLECTOR_KEY", "change-me")
+
 
 def get_current_time() -> float:
     """Get current UTC timestamp"""
