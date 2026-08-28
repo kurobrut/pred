@@ -36,7 +36,7 @@ def utc_now() -> str:
 
 
 def connection() -> sqlite3.Connection:
-    db = sqlite3.connect(DATABASE_PATH)
+    db = sqlite3.connect(str(DATABASE_PATH))
     db.row_factory = sqlite3.Row
     return db
 
