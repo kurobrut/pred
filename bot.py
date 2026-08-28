@@ -1,130 +1,428 @@
-import os
 import asyncio
 import logging
+import os
+
 import aiohttp
 import discord
 from discord import app_commands
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+
 logger = logging.getLogger("EggBot")
 
-API_URL = os.getenv("PREDICTOR_API_URL", "").rstrip("/")
+
+API_URL = os.getenv(
+    "PREDICTOR_API_URL",
+    ""
+).rstrip("/")
+
+DISCORD_TOKEN = os.getenv(
+    "DISCORD_TOKEN"
+)
+
+
 if not API_URL:
-    raise SystemExit("PREDICTOR_API_URL environment variable is required")
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+    raise SystemExit(
+        "PREDICTOR_API_URL environment variable is required"
+    )
+
+
 if not DISCORD_TOKEN:
-    raise SystemExit("DISCORD_TOKEN is required")
 
+    raise SystemExit(
+        "DISCORD_TOKEN environment variable is required"
+    )
+
+
+# --------------------------------------------------
+# DISCORD BOT
+# --------------------------------------------------
 
 class EggBot(discord.Client):
-    def __init__(self) -> None:
-        super().__init__(intents=discord.Intents.default())
-        self.commands = app_commands.CommandTree(self)
 
-    async def on_ready(self) -> None:
-        await self.commands.sync()
-        logger.info(f"{self.user} online; slash commands synced")
+    def __init__(self):
+
+        intents = discord.Intents.default()
+
+        super().__init__(
+            intents=intents
+        )
+
+        self.tree = app_commands.CommandTree(
+            self
+        )
+
+    async def setup_hook(self):
+
+        await self.tree.sync()
+
+        logger.info(
+            "Slash commands synced"
+        )
+
+    async def on_ready(self):
+
+        logger.info(
+            "Logged in as %s",
+            self.user
+        )
 
 
 client = EggBot()
 
 
-async def api_json(path: str) -> dict:
-    """Fetch JSON from API with extended timeout for Render cold starts"""
-    timeout = aiohttp.ClientTimeout(total=30)  # 30 seconds for Render cold starts
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        try:
-            async with session.get(f"{API_URL}{path}") as response:
+# --------------------------------------------------
+# API HELPER
+# --------------------------------------------------
+
+async def api_json(
+    path: str
+) -> dict:
+
+    timeout = aiohttp.ClientTimeout(
+        total=30
+    )
+
+    url = f"{API_URL}{path}"
+
+    try:
+
+        async with aiohttp.ClientSession(
+            timeout=timeout
+        ) as session:
+
+            async with session.get(
+                url
+            ) as response:
+
                 if response.status != 200:
-                    raise RuntimeError(f"API returned HTTP {response.status}")
+
+                    text = await response.text()
+
+                    raise RuntimeError(
+                        f"API returned HTTP "
+                        f"{response.status}: {text[:300]}"
+                    )
+
                 return await response.json()
-        except asyncio.TimeoutError:
-            raise RuntimeError("API request timed out (Render service may be starting)")
-        except aiohttp.ClientError as e:
-            raise RuntimeError(f"Connection failed: {e}")
 
+    except asyncio.TimeoutError:
 
-@client.commands.command(name="eggs", description="Show the latest observed field eggs")
-async def eggs(interaction: discord.Interaction) -> None:
-    await interaction.response.defer()
-    try:
-        data = await api_json("/eggs")
-        snapshot = data.get("snapshot")
-        if not snapshot:
-            await interaction.followup.send("No egg snapshot has been received yet.")
-            return
-        lines = [
-            f"{egg['egg_type']}" + (f" ({egg['area']})" if egg.get("area") else "")
-            for egg in snapshot["eggs"]
-        ]
-        countdown = data.get("seconds_until_reset")
-        reset_text = (
-            f"Next reset: {countdown}s"
-            if countdown is not None
-            else "Reset time unavailable"
+        raise RuntimeError(
+            "API request timed out"
         )
-        await interaction.followup.send(
-            f"**Current eggs**\n{chr(10).join(lines) or 'None'}\n\n{reset_text}"
-        )
-    except Exception as error:
-        logger.error(f"Error in eggs command: {error}")
-        await interaction.followup.send(
-            f"Could not read predictor API: {error}", ephemeral=True
+
+    except aiohttp.ClientError as error:
+
+        raise RuntimeError(
+            f"Connection failed: {error}"
         )
 
 
-@client.commands.command(
-    name="next", description="Show historical probabilities for the next cycle"
+# --------------------------------------------------
+# /eggs
+# --------------------------------------------------
+
+@client.tree.command(
+    name="eggs",
+    description="Show the latest observed field eggs"
 )
-async def next_cycle(interaction: discord.Interaction) -> None:
+async def eggs(
+    interaction: discord.Interaction
+):
+
     await interaction.response.defer()
+
     try:
-        data = await api_json("/next")
-        rows = data.get("predictions", [])
+
+        data = await api_json(
+            "/eggs"
+        )
+
+        snapshot = data.get(
+            "snapshot"
+        )
+
+        if not snapshot:
+
+            await interaction.followup.send(
+                "No egg snapshot has been received yet."
+            )
+
+            return
+
+        lines = []
+
+        for egg in snapshot.get(
+            "eggs",
+            []
+        ):
+
+            egg_type = egg.get(
+                "egg_type",
+                "Unknown"
+            )
+
+            area = egg.get(
+                "area"
+            )
+
+            if area:
+
+                lines.append(
+                    f"{egg_type} ({area})"
+                )
+
+            else:
+
+                lines.append(
+                    egg_type
+                )
+
+        countdown = data.get(
+            "seconds_until_reset"
+        )
+
+        if countdown is None:
+
+            reset_text = (
+                "Reset time unavailable"
+            )
+
+        else:
+
+            reset_text = (
+                f"Next reset in: "
+                f"{countdown}s"
+            )
+
+        message = (
+            "**Current eggs**\n"
+            + (
+                "\n".join(lines)
+                if lines
+                else "None"
+            )
+            + "\n\n"
+            + reset_text
+        )
+
+        await interaction.followup.send(
+            message
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "Error in /eggs"
+        )
+
+        await interaction.followup.send(
+            f"Could not read predictor API: "
+            f"{error}",
+            ephemeral=True
+        )
+
+
+# --------------------------------------------------
+# /next
+# --------------------------------------------------
+
+@client.tree.command(
+    name="next",
+    description="Show historical probabilities for the next cycle"
+)
+async def next_cycle(
+    interaction: discord.Interaction
+):
+
+    await interaction.response.defer()
+
+    try:
+
+        data = await api_json(
+            "/next"
+        )
+
+        rows = data.get(
+            "predictions",
+            []
+        )
+
+        lines = []
+
+        for row in rows:
+
+            egg_type = row.get(
+                "egg_type",
+                "Unknown"
+            )
+
+            probability = float(
+                row.get(
+                    "probability",
+                    0
+                )
+            )
+
+            observations = row.get(
+                "observations",
+                0
+            )
+
+            lines.append(
+                f"{egg_type}: "
+                f"{probability:.1%} "
+                f"({observations} cycles)"
+            )
+
+        countdown = data.get(
+            "seconds_until_reset"
+        )
+
+        reset_text = (
+            str(countdown)
+            if countdown is not None
+            else "unknown"
+        )
+
+        message = (
+            "**Next cycle estimate**\n"
+            f"Reset in: {reset_text}s\n\n"
+            + (
+                "\n".join(lines)
+                if lines
+                else "Not enough history yet."
+            )
+        )
+
+        await interaction.followup.send(
+            message
+        )
+
+    except Exception as error:
+
+        logger.exception(
+            "Error in /next"
+        )
+
+        await interaction.followup.send(
+            f"Could not read predictor API: "
+            f"{error}",
+            ephemeral=True
+        )
+
+
+# --------------------------------------------------
+# /history
+# --------------------------------------------------
+
+@client.tree.command(
+    name="history",
+    description="Show recent observed cycles"
+)
+async def history(
+    interaction: discord.Interaction
+):
+
+    await interaction.response.defer()
+
+    try:
+
+        data = await api_json(
+            "/history?limit=5"
+        )
+
+        cycles = data.get(
+            "cycles",
+            []
+        )
+
         lines = [
-            f"{row['egg_type']}: {row['probability']:.1%} ({row['observations']} cycles)"
-            for row in rows
+            (
+                f"Cycle {cycle.get('id', '?')}: "
+                f"{len(cycle.get('eggs', []))} eggs"
+            )
+            for cycle in cycles
         ]
-        countdown = data.get("seconds_until_reset")
+
         await interaction.followup.send(
-            f"**Next cycle estimate**\nReset in: {countdown if countdown is not None else 'unknown'}s\n"
-            + ("\n".join(lines) or "Not enough history yet.")
+            "**Recent cycles**\n"
+            + (
+                "\n".join(lines)
+                if lines
+                else "No history yet."
+            )
         )
+
     except Exception as error:
-        logger.error(f"Error in next_cycle command: {error}")
+
+        logger.exception(
+            "Error in /history"
+        )
+
         await interaction.followup.send(
-            f"Could not read predictor API: {error}", ephemeral=True
+            f"Could not read predictor API: "
+            f"{error}",
+            ephemeral=True
         )
 
 
-@client.commands.command(name="history", description="Show recent observed cycles")
-async def history(interaction: discord.Interaction) -> None:
-    await interaction.response.defer()
+# --------------------------------------------------
+# /status
+# --------------------------------------------------
+
+@client.tree.command(
+    name="status",
+    description="Check API connectivity"
+)
+async def status(
+    interaction: discord.Interaction
+):
+
+    await interaction.response.defer(
+        ephemeral=True
+    )
+
     try:
-        data = await api_json("/history?limit=5")
-        lines = [f"Cycle {cycle['id']}: {len(cycle['eggs'])} eggs" for cycle in data["cycles"]]
-        await interaction.followup.send(
-            "**Recent cycles**\n" + ("\n".join(lines) or "No history yet.")
-        )
-    except Exception as error:
-        logger.error(f"Error in history command: {error}")
-        await interaction.followup.send(
-            f"Could not read predictor API: {error}", ephemeral=True
+
+        data = await api_json(
+            "/health"
         )
 
+        await interaction.followup.send(
+            f"✅ API is online: "
+            f"{data.get('status', 'unknown')}",
+            ephemeral=True
+        )
 
-@client.commands.command(name="status", description="Check API connectivity")
-async def status(interaction: discord.Interaction) -> None:
-    await interaction.response.defer()
-    try:
-        data = await api_json("/health")
-        await interaction.followup.send(f"✅ API is online: {data}", ephemeral=True)
     except Exception as error:
-        logger.error(f"Error in status command: {error}")
-        await interaction.followup.send(f"❌ API is offline: {error}", ephemeral=True)
 
+        logger.exception(
+            "Error in /status"
+        )
+
+        await interaction.followup.send(
+            f"❌ API is offline: {error}",
+            ephemeral=True
+        )
+
+
+# --------------------------------------------------
+# START
+# --------------------------------------------------
 
 if __name__ == "__main__":
-    client.run(DISCORD_TOKEN)
+
+    client.run(
+        DISCORD_TOKEN
+    )
