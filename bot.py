@@ -5,7 +5,10 @@ import discord
 from discord import app_commands
 
 
-API_URL = os.getenv("PREDICTOR_API_URL", "http://127.0.0.1:8000").rstrip("/")
+API_URL = os.getenv("PREDICTOR_API_URL", "").rstrip("/")
+
+if not API_URL:
+    raise SystemExit("PREDICTOR_API_URL environment variable is required")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 
