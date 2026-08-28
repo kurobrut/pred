@@ -1,45 +1,57 @@
-"""
-Egg Data Collector
-Collects egg spawn data and sends it to the FastAPI /ingest endpoint.
-
-Usage:
-    python collector.py
-    
-Environment Variables:
-    PREDICTOR_API_URL - URL to FastAPI server (default: http://127.0.0.1:8000)
-    COLLECTOR_KEY - Secret key for authentication (must match API's COLLECTOR_KEY)
-"""
-
 import os
-import json
 import time
 from datetime import datetime, timezone
+
 import requests
 
 
-API_URL = os.getenv("PREDICTOR_API_URL", "http://127.0.0.1:8000").rstrip("/")
-COLLECTOR_KEY = os.getenv("COLLECTOR_KEY", "change-me")
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
 
+API_URL = os.getenv(
+    "PREDICTOR_API_URL",
+    "http://127.0.0.1:8000"
+).rstrip("/")
+
+COLLECTOR_KEY = os.getenv(
+    "COLLECTOR_KEY",
+    "change-me"
+)
+
+COLLECTION_INTERVAL = int(
+    os.getenv(
+        "COLLECTION_INTERVAL",
+        "60"
+    )
+)
+
+
+# --------------------------------------------------
+# TIME
+# --------------------------------------------------
 
 def get_current_time() -> float:
-    """Get current UTC timestamp"""
-    return datetime.now(timezone.utc).timestamp()
 
+    return datetime.now(
+        timezone.utc
+    ).timestamp()
+
+
+# --------------------------------------------------
+# COLLECT EGGS
+# --------------------------------------------------
 
 def collect_eggs() -> dict:
-    """
-    Collect egg data from your source.
-    
-    This is a placeholder - replace with your actual egg collection logic.
-    For example, you might:
-    - Scrape a website
-    - Query a game API
-    - Read from a local file
-    - Use OCR on screenshots
-    """
+
     current_time = get_current_time()
-    
-    # Example egg data - replace with real data
+
+    # ------------------------------------------------
+    # IMPORTANT:
+    # Replace this example data with your REAL
+    # egg collection logic.
+    # ------------------------------------------------
+
     eggs = [
         {
             "uid": "egg_001",
@@ -48,100 +60,224 @@ def collect_eggs() -> dict:
             "spawned_at": current_time
         },
         {
-            "uid": "egg_002", 
+            "uid": "egg_002",
             "egg_type": "water",
             "area": "Lake",
-            "spawned_at": current_time + 1
+            "spawned_at": current_time
         },
         {
             "uid": "egg_003",
             "egg_type": "fire",
             "area": "Volcano",
-            "spawned_at": current_time + 2
-        },
+            "spawned_at": current_time
+        }
     ]
-    
+
+    cycle_seconds = 3600
+
     return {
         "server_time": current_time,
-        "cycle_seconds": 3600,  # 1 hour cycle
-        "next_reset_at": current_time + 3600,
+        "cycle_seconds": cycle_seconds,
+        "next_reset_at": (
+            current_time
+            + cycle_seconds
+        ),
         "eggs": eggs
     }
 
 
-def send_snapshot(snapshot: dict) -> bool:
-    """Send egg snapshot to API"""
+# --------------------------------------------------
+# SEND
+# --------------------------------------------------
+
+def send_snapshot(
+    snapshot: dict
+) -> bool:
+
     headers = {
         "X-Collector-Key": COLLECTOR_KEY,
         "Content-Type": "application/json"
     }
-    
+
     try:
+
         response = requests.post(
             f"{API_URL}/ingest",
             json=snapshot,
             headers=headers,
-            timeout=10
+            timeout=30
         )
-        
+
         if response.status_code == 200:
+
             result = response.json()
-            print(f"✅ Snapshot sent successfully (ID: {result['id']}, {result['eggs']} eggs)")
+
+            print(
+                "Snapshot sent successfully "
+                f"(ID: {result.get('id')}, "
+                f"{result.get('eggs')} eggs)"
+            )
+
             return True
-        else:
-            print(f"❌ API error: HTTP {response.status_code}")
-            print(f"   Response: {response.text}")
-            return False
-            
-    except requests.exceptions.ConnectionError:
-        print(f"❌ Connection failed: Could not reach {API_URL}")
-        return False
-    except requests.exceptions.Timeout:
-        print(f"❌ Request timed out")
-        return False
-    except Exception as e:
-        print(f"❌ Error: {e}")
+
+        print(
+            f"API error: HTTP "
+            f"{response.status_code}"
+        )
+
+        print(
+            response.text[:500]
+        )
+
         return False
 
+    except requests.exceptions.ConnectionError:
+
+        print(
+            f"Connection failed: "
+            f"Could not reach {API_URL}"
+        )
+
+        return False
+
+    except requests.exceptions.Timeout:
+
+        print(
+            "Request timed out"
+        )
+
+        return False
+
+    except Exception as error:
+
+        print(
+            f"Unexpected error: {error}"
+        )
+
+        return False
+
+
+# --------------------------------------------------
+# API TEST
+# --------------------------------------------------
+
+def check_api() -> bool:
+
+    try:
+
+        response = requests.get(
+            f"{API_URL}/health",
+            timeout=15
+        )
+
+        if response.status_code == 200:
+
+            print(
+                "API is online"
+            )
+
+            return True
+
+        print(
+            f"API returned HTTP "
+            f"{response.status_code}"
+        )
+
+        return False
+
+    except Exception as error:
+
+        print(
+            f"Cannot reach API: {error}"
+        )
+
+        return False
+
+
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
 
 def main():
-    """Main collector loop"""
-    print(f"Egg Data Collector")
-    print(f"API URL: {API_URL}")
-    print(f"Collector Key: {COLLECTOR_KEY[:10]}..." if len(COLLECTOR_KEY) > 10 else f"Collector Key: {COLLECTOR_KEY}")
-    print("-" * 50)
-    
-    # Test API connectivity
-    try:
-        response = requests.get(f"{API_URL}/health", timeout=5)
-        if response.status_code == 200:
-            print("✅ API is online\n")
-        else:
-            print(f"❌ API returned status {response.status_code}\n")
-            return
-    except Exception as e:
-        print(f"❌ Cannot reach API: {e}\n")
-        return
-    
-    # Collect and send in a loop
-    try:
-        while True:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Collecting eggs...")
-            
-            # Collect egg data
+
+    print(
+        "Egg Data Collector"
+    )
+
+    print(
+        f"API URL: {API_URL}"
+    )
+
+    print(
+        f"Collection interval: "
+        f"{COLLECTION_INTERVAL}s"
+    )
+
+    print(
+        "-" * 50
+    )
+
+    while True:
+
+        try:
+
+            if not check_api():
+
+                print(
+                    "API unavailable. "
+                    "Retrying in 30 seconds..."
+                )
+
+                time.sleep(30)
+
+                continue
+
+            print(
+                f"[{datetime.now().strftime('%H:%M:%S')}] "
+                "Collecting eggs..."
+            )
+
             snapshot = collect_eggs()
-            print(f"   Found {len(snapshot['eggs'])} eggs")
-            
-            # Send to API
-            send_snapshot(snapshot)
-            
-            # Wait before next collection (in production, adjust this based on your cycle)
-            print("   Waiting 60 seconds before next collection...\n")
-            time.sleep(60)
-            
-    except KeyboardInterrupt:
-        print("\n\nCollector stopped.")
+
+            print(
+                f"Found "
+                f"{len(snapshot['eggs'])} eggs"
+            )
+
+            send_snapshot(
+                snapshot
+            )
+
+            print(
+                f"Waiting "
+                f"{COLLECTION_INTERVAL} seconds...\n"
+            )
+
+            time.sleep(
+                COLLECTION_INTERVAL
+            )
+
+        except KeyboardInterrupt:
+
+            print(
+                "Collector stopped."
+            )
+
+            break
+
+        except Exception as error:
+
+            print(
+                f"Collector error: {error}"
+            )
+
+            print(
+                "Retrying in 30 seconds..."
+            )
+
+            time.sleep(30)
 
 
 if __name__ == "__main__":
+
     main()
