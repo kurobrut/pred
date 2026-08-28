@@ -9,7 +9,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-BASE_DIR = Path(__file__).resolve().parent
+# Use Render's persistent disk if available, otherwise use temp directory
+BASE_DIR = Path(os.getenv("RENDER_MOUNT_PATH", "/tmp"))
 DATABASE_PATH = Path(os.getenv("EGG_DATABASE", BASE_DIR / "eggs.db"))
 COLLECTOR_KEY = os.getenv("COLLECTOR_KEY", "change-me")
 
@@ -52,6 +53,7 @@ def init_db() -> None:
                 eggs_json TEXT NOT NULL
             )
         """)
+        db.commit()
 
 
 def require_collector_key(x_collector_key: str | None = Header(default=None)) -> None:
@@ -95,6 +97,7 @@ def predictions(limit: int = 100) -> list[dict[str, Any]]:
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+    print(f"Database initialized at {DATABASE_PATH}")
 
 
 @app.get("/health")
@@ -111,6 +114,7 @@ def ingest(snapshot: EggSnapshot) -> dict[str, Any]:
             (received_at, snapshot.server_time, snapshot.cycle_seconds, snapshot.next_reset_at,
              json.dumps([egg.model_dump() for egg in snapshot.eggs])),
         )
+        db.commit()
     return {"id": cursor.lastrowid, "received_at": received_at, "eggs": len(snapshot.eggs)}
 
 
